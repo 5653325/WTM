@@ -6,7 +6,7 @@ namespace WalkingTec.Mvvm.Core
     public enum ColumnFormatTypeEnum
     {
         Dialog,//弹出窗口
-        Redirect,//转向
+        Button,//按钮
         Download,//下载
         ViewPic,//查看图片
         Script,//脚本
@@ -78,6 +78,18 @@ namespace WalkingTec.Mvvm.Core
     };
 
     /// <summary>
+    /// 按钮
+    /// </summary>
+    public enum RedirectTypesEnum
+    {
+        Layer,
+        Self,
+        NewWindow,
+        NewTab,
+    };
+
+
+    /// <summary>
     /// 按钮类型
     /// </summary>
     public enum ButtonOperationEnum
@@ -106,10 +118,31 @@ namespace WalkingTec.Mvvm.Core
     /// </summary>
     public enum DateTimeTypeEnum
     {
+        /// <summary>
+        /// 日期选择器
+        /// 可选择：年、月、日
+        /// </summary>
         Date,
-        Time,
-        DateAndTime,
-        Month
+        /// <summary>
+        /// 日期时间选择器
+        /// 可选择：年、月、日、时、分、秒
+        /// </summary>
+        DateTime,
+        /// <summary>
+        /// 年选择器
+        /// 只提供年列表选择
+        /// </summary>
+        Year,
+        /// <summary>
+        /// 年月选择器
+        /// 只提供年、月选择
+        /// </summary>
+        Month,
+        /// <summary>
+        /// 时间选择器
+        /// 只提供时、分、秒选择
+        /// </summary>
+        Time
     };
 
     /// <summary>
@@ -148,10 +181,7 @@ namespace WalkingTec.Mvvm.Core
     }
 
     public enum UIEnum
-    {
-        extjs,
-        bootstrap
-    }
+    { LayUI, React, VUE }
 
     public enum NoRightEnum
     {

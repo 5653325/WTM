@@ -120,7 +120,7 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
             }
         }
 
-        private string ToolBarId => $"{TABLE_TOOLBAR_PREFIX}{ListVM.UniqueId}";
+        private string ToolBarId => $"{TABLE_TOOLBAR_PREFIX}{(string.IsNullOrEmpty(_gridIdUserSet) ? ListVM.UniqueId : _gridIdUserSet)}";
         /// <summary>
         /// 设定复选框列 默认false
         /// </summary>
@@ -150,12 +150,15 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
         /// </summary>
         public bool MultiLine { get; set; }
 
+        public int? LineHeight { get; set; }
+
         /// <summary>
         /// 设定容器宽度 默认值：'auto'
         /// table容器的默认宽度是 auto，你可以借助该参数设置一个固定值，当容器中的内容超出了该宽度时，会自动出现横向滚动条。
         /// </summary>
         public int? Width { get; set; }
 
+        public bool AutoSearch { get; set; } = true;
         /// <summary>
         /// 接口地址
         /// </summary>
@@ -248,6 +251,16 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
         /// 是否显示汇总行
         /// </summary>
         public bool NeedShowTotal { get; set; }
+
+        /// <summary>
+        /// 是否显示打印
+        /// </summary>
+        public bool? NeedShowPrint { get; set; }
+
+        /// <summary>
+        /// 是否显示删选列按钮
+        /// </summary>
+        public bool? NeedShowFilter { get; set; }
         /// <summary>
         /// 排除的搜索条件
         /// </summary>
@@ -263,8 +276,12 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
             "TreeMode",
             "IsPostBack",
             "DC",
-            "LoginUserInfo"
+            "LoginUserInfo",
+            "MSD",
+            "Session"
         };
+
+        private bool hasButtonGroup = false;
 
         /// <summary>
         /// 排除的搜索条件类型，搜索条件数据源可能会存储在Searcher对象中
@@ -282,7 +299,7 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
 
             var nextCols = new List<IGridColumn<TopBasePoco>>();// 下一级列头
 
-            generateColHeader(rawCols, nextCols, tempCols, maxDepth);
+            generateColHeader(rawCols, nextCols, tempCols, maxDepth, depth);
 
             if (nextCols.Count > 0)
             {
@@ -305,9 +322,48 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
             output.Attributes.Add("lay-filter", Id);
             output.TagMode = TagMode.StartTagAndEndTag;
 
+            var config = GlobalServices.GetRequiredService<Configs>();
+
+            if (LineHeight.HasValue)
+            {
+                MultiLine = false;
+            }
+
+            if (UseLocalData == false)
+            {
+                if (NeedShowPrint == null)
+                {
+                    NeedShowPrint = config?.UiOptions.DataTable.ShowPrint;
+                }
+                if (NeedShowFilter == null)
+                {
+                    NeedShowFilter = config?.UiOptions.DataTable.ShowFilter;
+                }
+            }
+            var righttoolbar = ",defaultToolbar: []";
+            int lefttoolbarmergin = -120;
+            if(NeedShowFilter == true && NeedShowPrint == true)
+            {
+                righttoolbar = ",defaultToolbar: ['filter', 'print']";
+                lefttoolbarmergin = -45;
+            }
+            else
+            {
+                if(NeedShowFilter == true)
+                {
+                    righttoolbar = ",defaultToolbar: ['filter']";
+                    lefttoolbarmergin = -80;
+                }
+                if (NeedShowPrint == true)
+                {
+                    righttoolbar = ",defaultToolbar: ['print']";
+                    lefttoolbarmergin = -80;
+                }
+            }
+
             if (Limit == null)
             {
-                Limit = GlobalServices.GetRequiredService<Configs>()?.UiOptions.DataTable.RPP;
+                Limit = config?.UiOptions.DataTable.RPP;
             }
             if (Limits == null)
             {
@@ -323,14 +379,18 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
             {
                 ListVM.NeedPage = false;
             }
-            else if (string.IsNullOrEmpty(Url))
+            else
             {
-                Url = "/_Framework/GetPagingData";
-
+                if (string.IsNullOrEmpty(Url))
+                {
+                    // TODO 已废弃，预计v3.0版本及v2.10版本开始将删除
+                    Url = "/_Framework/GetPagingData";
+                }
                 if (Filter == null) Filter = new Dictionary<string, object>();
                 Filter.Add("_DONOT_USE_VMNAME", vmQualifiedName);
                 Filter.Add("_DONOT_USE_CS", ListVM.CurrentCS);
                 Filter.Add("SearcherMode", ListVM.SearcherMode);
+                Filter.Add("ViewDivId", ListVM.ViewDivId);
                 if (ListVM.Ids != null && ListVM.Ids.Count > 0)
                 {
                     Filter.Add("Ids", ListVM.Ids);
@@ -344,7 +404,14 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
                     {
                         if (!_excludeParams.Contains(prop.Name))
                         {
-                            Filter.Add($"Searcher.{prop.Name}", prop.GetValue(ListVM.Searcher));
+                            if (prop.PropertyType.IsGenericType == false || (prop.PropertyType.GenericTypeArguments[0] != typeof(ComboSelectListItem) && prop.PropertyType.GenericTypeArguments[0] != typeof(TreeSelectListItem)))
+                            {
+                                var listvalue = prop.GetValue(ListVM.Searcher);
+                                if (listvalue != null)
+                                {
+                                    Filter.Add($"Searcher.{prop.Name}", prop.GetValue(ListVM.Searcher));
+                                }
+                            }
                         }
                     }
                 }
@@ -355,7 +422,7 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
 
             #region 生成 Layui 所需的表头
             var rawCols = ListVM?.GetHeaders();
-            var maxDepth = (ListVM?.ChildrenDepth) ?? 1;
+            var maxDepth = (ListVM?.GetChildrenDepth()) ?? 1;
             var layuiCols = new List<List<LayuiColumn>>();
 
             var tempCols = new List<LayuiColumn>();
@@ -369,8 +436,13 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
                     LAY_CHECKED = CheckedAll,
                     Rowspan = maxDepth,
                     Fixed = GridColumnFixedEnum.Left,
-                    Width = 45
+                    UnResize = true,
+                    //Width = 45
                 };
+                if(LineHeight != null)
+                {
+                    checkboxHeader.Style = $"height:{LineHeight}px";
+                }
                 tempCols.Add(checkboxHeader);
             }
             // 添加序号列
@@ -381,13 +453,18 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
                     Type = LayuiColumnTypeEnum.Numbers,
                     Rowspan = maxDepth,
                     Fixed = GridColumnFixedEnum.Left,
-                    Width = 45
+                    UnResize = true,
+                    //Width = 45
                 };
+                if (LineHeight != null)
+                {
+                    gridIndex.Style = $"height:{LineHeight}px";
+                }
                 tempCols.Add(gridIndex);
             }
             var nextCols = new List<IGridColumn<TopBasePoco>>();// 下一级列头
 
-            generateColHeader(rawCols, nextCols, tempCols, maxDepth);
+            generateColHeader(rawCols, nextCols, tempCols, maxDepth,0);
 
             if (nextCols.Count > 0)
             {
@@ -403,7 +480,7 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
 
             #region 处理 DataTable 操作按钮
 
-            var actionCol = ListVM?.GridActions;
+            var actionCol = ListVM?.GetGridActions();
 
             var rowBtnStrBuilder = new StringBuilder();// Grid 行内按钮
             var toolBarBtnStrBuilder = new StringBuilder();// Grid 工具条按钮
@@ -417,10 +494,32 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
                     AddSubButton(vmQualifiedName, rowBtnStrBuilder, toolBarBtnStrBuilder, gridBtnEventStrBuilder, vm, item);
                 }
             }
+            if (hasButtonGroup == true)
+            {
+                toolBarBtnStrBuilder.Append($@"<script type=""text/javascript"" des=""buttongroup"">layui.use([""form""], function () {{
+                            var form = layui.form, $ = layui.jquery;
+                            $("".downpanel"").on(""click"", "".layui-select-title"", function(e) {{
+                                $("".layui-form-select"").not($(this).parents("".layui-form-select"")).removeClass(""layui-form-selected"");
+                                $(this).parents("".layui-form-select"").toggleClass(""layui-form-selected"");
+                                            e.stopPropagation();
+                                        }});
+                            $(document).click(function(event) {{
+                            var _con2 = $("".downpanel"");
+                            if (!_con2.is (event.target) && (_con2.has(event.target).length === 0)) {{
+                            _con2.removeClass(""layui -form-selected"");
+                            }}
+                            }});
+                            }});</script>");
+            }
+
             #endregion
 
             #region DataTable
-
+            var toolbardef = "";
+            if(toolBarBtnStrBuilder.Length > 0 || NeedShowFilter == true || NeedShowPrint == true)
+            {
+                toolbardef = $" ,toolbar: '#{ToolBarId}2'";
+            }
             var vmName = string.Empty;
             if (VMType != null)
             {
@@ -433,7 +532,7 @@ var {Id}option = null;
 /* 监听工具条 */
 function wtToolBarFunc_{Id}(obj){{ //注：tool是工具条事件名，test是table原始容器的属性 lay-filter=""对应的值""
 var data = obj.data, layEvent = obj.event, tr = obj.tr; //获得当前行 tr 的DOM对象
-{(gridBtnEventStrBuilder.Length == 0 ? string.Empty : $@"switch(layEvent){{{gridBtnEventStrBuilder}default:break;}}")}
+{(gridBtnEventStrBuilder.Length == 0 ? string.Empty : $@"var ids; var objs;switch(layEvent){{{gridBtnEventStrBuilder}default:break;}}")}
 return;
 }}
 layui.use(['table'], function(){{
@@ -441,12 +540,24 @@ layui.use(['table'], function(){{
   {Id}option = {{
     elem: '#{Id}'
     ,id: '{Id}'
+    ,text:{{
+        none:'{Program._localizer["NoData"]}'
+    }}
+    {toolbardef}
+    {righttoolbar}
     {(!NeedShowTotal ? string.Empty : ",totalRow:true")}
-    {(string.IsNullOrEmpty(Url) ? string.Empty : $",url: '{Url}'")}
+    ,headers: {{layuisearch: 'true'}}
     {(Filter == null || Filter.Count == 0 ? string.Empty : $",where: {JsonConvert.SerializeObject(Filter)}")}
     {(Method == null ? ",method:'post'" : $",method: '{Method.Value.ToString().ToLower()}'")}
     {(Loading ?? true ? string.Empty : ",loading:false")}
-    {(page ? string.Empty : ",page:{layout:['count']}")}
+    {(page ? $@",page:{{
+        rpptext:'{Program._localizer["RecordsPerPage"]}',
+        totaltext:'{Program._localizer["Total"]}',
+        recordtext:'{Program._localizer["Record"]}',
+        gototext:'{Program._localizer["Goto"]}',
+        pagetext:'{Program._localizer["Page"]}',
+        oktext:'{Program._localizer["GotoButtonText"]}',
+    }}":",page:false")}
     {(page ? $",limit:{Limit}" : $",limit:{(UseLocalData ? ListVM.GetEntityList().Count().ToString() : "0")}")}
     {(page
         ? (Limits == null || Limits.Length == 0
@@ -461,19 +572,42 @@ layui.use(['table'], function(){{
     {(Even.HasValue && !Even.Value ? $",even: false" : string.Empty)}
     {(!Size.HasValue ? string.Empty : $",size: '{Size.Value.ToString().ToLower()}'")}
     ,done: function(res,curr,count){{
-      var tab = $('#{Id} + .layui-table-view');tab.find('table').css('border-collapse','separate');
-      {(Height == null ? $"tab.css('overflow','hidden').addClass('donotuse_fill donotuse_pdiv');tab.children('.layui-table-box').addClass('donotuse_fill donotuse_pdiv').css('height','100px');tab.find('.layui-table-main').addClass('donotuse_fill');tab.find('.layui-table-header').css('min-height','40px');ff.triggerResize();" : string.Empty)}
+      {Id}filterback = this;
+      if(res.Code == 401){{ layui.layer.confirm(res.Msg,{{title:'{Program._localizer["Error"]}'}}, function(index){{window.location.reload();layer.close(index);}});}}
+      if(res.Code != undefined && res.Code != 200){{ layui.layer.alert(res.Msg,{{title:'{Program._localizer["Error"]}'}});}}
+     var tab = $('#{Id} + .layui-table-view');tab.find('table').css('border-collapse','separate');
+      {(Height == null ? $"tab.css('overflow','hidden').addClass('donotuse_fill donotuse_pdiv');tab.children('.layui-table-box').addClass('donotuse_fill donotuse_pdiv').css('height','100px');tab.find('.layui-table-main').addClass('donotuse_fill');tab.find('.layui-table-header').css('min-height','{maxDepth*38}px');ff.triggerResize();" : string.Empty)}
       {(MultiLine == true ? $"tab.find('.layui-table-cell').css('height','auto').css('white-space','normal');" : string.Empty)}
+       tab.find('div [lay-event=\'LAYTABLE_COLS\']').attr('title','{Program._localizer["ColumnFilter"]}');
+       tab.find('div [lay-event=\'LAYTABLE_PRINT\']').attr('title','{Program._localizer["Print"]}');
       {(string.IsNullOrEmpty(DoneFunc) ? string.Empty : $"{DoneFunc}(res,curr,count)")}
     }}
     }}
-  {TableJSVar} = table.render({Id}option);
-  {(UseLocalData ? $@"ff.LoadLocalData(""{Id}"",{Id}option,{ListVM.GetDataJson().Replace("<script>", "$$script$$").Replace("</script>", "$$#script$$")}); " : string.Empty)}
+{Id}defaultfilter = {{}};
+{Id}filterback = {{}};
+{Id}url = '{Url}';
+$.extend(true,{Id}defaultfilter ,{Id}option);
+    {TableJSVar} = table.render({Id}option);
+    {(UseLocalData ? $@"ff.LoadLocalData(""{Id}"",{Id}option,{ListVM.GetDataJson().Replace("<script>", "$$script$$").Replace("</script>", "$$#script$$")},{string.IsNullOrEmpty(ListVM.DetailGridPrix).ToString().ToLower()}); " : $@"
+    {(page ?  $"if (document.body.clientWidth< 500) {{ {Id}option.page.layout = ['count', 'prev', 'page', 'next']; {Id}option.page.groups= 1;}} ":"")}
+{(AutoSearch ? $@"
+setTimeout(function(){{
+    var tempwhere = {{}};
+    $.extend(tempwhere,{Id}defaultfilter.where);
+    table.reload('{Id}',{{url:'{Url}',where: $.extend(tempwhere,ff.GetSearchFormData('{SearchPanelId}','{Vm.Name}')),}});
+}},100);
+" : $@"
+        var {Id}optionempty =  Object.assign({{}}, {Id}option);
+        {Id}optionempty.url = null;
+        {Id}optionempty.data = [];
+        layui.table.render({Id}optionempty);
+")}
+")}
 
   {(VMType == null || string.IsNullOrEmpty(vmName) ? string.Empty : $@"function wtEditFunc_{Id}(o){{
       var data = {{_DONOT_USE_VMNAME:'{vmName}',id:o.data.ID,field:o.field,value:o.value}};
       $.post(""/_Framework/UpdateModelProperty"",data,function(a,b,c){{
-          if(a.code == 200){{ff.Msg('更新成功');}}else{{ff.Msg(a.msg);}}
+          if(a.code == 200){{ff.Msg('{Program._localizer["UpdateDone"]}');}}else{{ff.Msg(a.msg);}}
       }});
   }}")}
   table.on('tool({Id})',wtToolBarFunc_{Id});
@@ -483,7 +617,7 @@ layui.use(['table'], function(){{
     var sortfilter = {{}};
     sortfilter['Searcher.SortInfo.Property'] = obj.field;
     sortfilter['Searcher.SortInfo.Direction'] = obj.type.replace(obj.type[0],obj.type[0].toUpperCase());
-    var w = $.extend({Id}option.where,sortfilter);
+    var w = $.extend({Id}option.where,sortfilter,ff.GetSearchFormData('{SearchPanelId}','{Vm.Name}'));
 
     table.reload('{Id}', {{
     initSort: obj,
@@ -492,12 +626,16 @@ layui.use(['table'], function(){{
   }});
 }})
 </script>
+<script type=""text / html"" id=""{ToolBarId}2"" >
+<div  id=""{Id}buttons""style=""text-align:right;margin-right:{lefttoolbarmergin}px"">{toolBarBtnStrBuilder}</div>
+</script>
 <!-- Grid 行内按钮 -->
 <script type=""text/html"" id=""{ToolBarId}"">{rowBtnStrBuilder}</script>
 ");
             #endregion
 
-            output.PreElement.AppendHtml($@"<div style=""text-align:right;padding-bottom:10px;padding-top:5px;margin-right:15px;"">{toolBarBtnStrBuilder}</div>");
+
+            //output.PreElement.AppendHtml($@"<div style=""text-align:right;padding-bottom:10px;padding-top:5px;margin-right:15px;line-height:35px;"">{toolBarBtnStrBuilder}</div>");
             output.PostElement.AppendHtml($@"
 {(string.IsNullOrEmpty(ListVM.DetailGridPrix) ? string.Empty : $"<input type=\"hidden\" name=\"{Vm.Name}.DetailGridPrix\" value=\"{ListVM.DetailGridPrix}\"/>")}
 ");
@@ -508,17 +646,17 @@ layui.use(['table'], function(){{
             IEnumerable<IGridColumn<TopBasePoco>> rawCols,
             List<IGridColumn<TopBasePoco>> nextCols,
             List<LayuiColumn> tempCols,
-            int maxDepth
+            int maxDepth, int depth
         )
         {
             var temp = rawCols.Where(x => x.Fixed == GridColumnFixedEnum.Left).ToArray();
-            generateColHeaderCore(temp, nextCols, tempCols, maxDepth);
+            generateColHeaderCore(temp, nextCols, tempCols, maxDepth,depth);
 
             temp = rawCols.Where(x => x.Fixed == null).ToArray();
-            generateColHeaderCore(temp, nextCols, tempCols, maxDepth);
+            generateColHeaderCore(temp, nextCols, tempCols, maxDepth, depth);
 
             temp = rawCols.Where(x => x.Fixed == GridColumnFixedEnum.Right).ToArray();
-            generateColHeaderCore(temp, nextCols, tempCols, maxDepth);
+            generateColHeaderCore(temp, nextCols, tempCols, maxDepth, depth);
 
         }
 
@@ -526,7 +664,7 @@ layui.use(['table'], function(){{
             IEnumerable<IGridColumn<TopBasePoco>> rawCols,
             List<IGridColumn<TopBasePoco>> nextCols,
             List<LayuiColumn> tempCols,
-            int maxDepth
+            int maxDepth, int depth
         )
         {
             foreach (var item in rawCols)
@@ -539,12 +677,19 @@ layui.use(['table'], function(){{
                     Sort = item.Sort,
                     Fixed = item.Fixed,
                     Align = item.Align,
+                    Event = item.Event,
                     UnResize = item.UnResize,
                     Hide = item.Hide,
                     ShowTotal = item.ShowTotal
                 };
+
+                if (LineHeight != null && item.Fixed.HasValue)
+                {
+                    tempCol.Style = $"height:{LineHeight}px";
+                }
+
                 // 非编辑状态且有字段名的情况下，设置template
-                if ((item.EditType == EditTypeEnum.Text || item.EditType == null) && string.IsNullOrEmpty(item.Field) == false)
+                if ((string.IsNullOrEmpty(ListVM.DetailGridPrix) == true && string.IsNullOrEmpty(item.Field) == false) || item.Field == "BatchError")
                     tempCol.Templet = new JRaw(getTemplate(item.Field));
 
                 NeedShowTotal |= item.ShowTotal == true;
@@ -563,7 +708,10 @@ layui.use(['table'], function(){{
                 }
                 if (maxDepth > 1 && (item.Children == null || !item.Children.Any()))
                 {
-                    tempCol.Rowspan = maxDepth;
+                    if (maxDepth - depth > 1)
+                    {
+                        tempCol.Rowspan = maxDepth - depth;
+                    }
                 }
                 tempCols.Add(tempCol);
                 if (item.Children != null && item.Children.Any())
@@ -591,9 +739,10 @@ layui.use(['table'], function(){{
             bool isSub = false
         )
         {
-            if (vm.LoginUserInfo?.IsAccessable(item.Url) == true ||
+            if (string.IsNullOrEmpty(item.Url) ||
+                vm.LoginUserInfo?.IsAccessable(item.Url) == true ||
                 item.ParameterType == GridActionParameterTypesEnum.AddRow ||
-                item.ParameterType == GridActionParameterTypesEnum.RemoveRow
+                item.ParameterType == GridActionParameterTypesEnum.RemoveRow                 
             )
             {
                 // Grid 行内按钮
@@ -606,7 +755,7 @@ layui.use(['table'], function(){{
                         {
                             rowBtnStrBuilder.Append("{{#  if(d." + item.BindVisiableColName + " == true || d." + item.BindVisiableColName + " == 'true' ){ }}");
                         }
-                        rowBtnStrBuilder.Append($@"<a class=""layui-btn layui-btn-primary layui-btn-xs"" lay-event=""{item.Area + item.ControllerName + item.ActionName + item.QueryString}"">{item.Name}</a>");
+                        rowBtnStrBuilder.Append($@"<a class=""layui-btn {(string.IsNullOrEmpty(item.ButtonClass) ? "layui-btn-primary" : $"{item.ButtonClass}")} layui-btn-xs"" lay-event=""{item.Area + item.ControllerName + item.ActionName + item.QueryString}"">{item.Name}</a>");
                         if (condition == true)
                         {
                             rowBtnStrBuilder.Append("{{#  } else{ }}");
@@ -615,7 +764,7 @@ layui.use(['table'], function(){{
                     }
                     else
                     {
-                        rowBtnStrBuilder.Append($@"<a class=""layui-btn layui-btn-primary layui-btn-xs"" onclick=""ff.RemoveGridRow('{Id}',{Id}option,{{{{d.LAY_INDEX}}}});"">{item.Name}</a>");
+                        rowBtnStrBuilder.Append($@"<a class=""layui-btn {(string.IsNullOrEmpty(item.ButtonClass) ? "layui-btn-primary" : $"{item.ButtonClass}")} layui-btn-xs"" onclick=""ff.RemoveGridRow('{Id}',{Id}option,{{{{d.LAY_INDEX}}}});"">{item.Name}</a>");
                     }
                 }
 
@@ -641,8 +790,11 @@ layui.use(['table'], function(){{
                                 subBarBtnStrList.AppendFormat("<dd style=\"padding: 0 0px;margin-bottom:1px;line-height: initial;\">{0}</dd>", subBarBtnStr.ToString());
                             }
                         }
-
-                        toolBarBtnStrBuilder.Append($@"<button type=""button"" class=""layui-btn layui-btn-sm layui-unselect layui-form-select downpanel"" style=""z-index:10;"" id=""btn_{item.ButtonId}"">
+                        if(subBarBtnStrList.Length == 0)
+                        {
+                            return;
+                        }
+                        toolBarBtnStrBuilder.Append($@"<button type=""button"" class=""layui-btn {(string.IsNullOrEmpty(item.ButtonClass) ? "" : $"{item.ButtonClass}")} layui-btn-sm layui-unselect layui-form-select downpanel"" style=""z-index:9999;"" id=""btn_{item.ButtonId}"">
                                  <div class=""layui-select-title"" style=""padding-right:20px;"">
                                         {item.Name}
                                  <i class=""layui-edge""></i>
@@ -651,31 +803,17 @@ layui.use(['table'], function(){{
                                     {subBarBtnStrList.ToString()}
                                  </dl>
                                  </button>");
-                        if (!toolBarBtnStrBuilder.ToString().Contains("layui.use(["))
-                        {
-                            toolBarBtnStrBuilder.Append($@"<script type=""text/javascript"">layui.use([""form""], function () {{
-                            var form = layui.form, $ = layui.jquery;
-                            $("".downpanel"").on(""click"", "".layui-select-title"", function(e) {{
-                                $("".layui-form-select"").not($(this).parents("".layui-form-select"")).removeClass(""layui-form-selected"");
-                                $(this).parents("".layui-form-select"").toggleClass(""layui-form-selected"");
-                                            e.stopPropagation();
-                                        }});
-                            $(document).click(function(event) {{
-                            var _con2 = $("".downpanel"");
-                            if (!_con2.is (event.target) && (_con2.has(event.target).length === 0)) {{
-                            _con2.removeClass(""layui -form-selected"");
-                            }}
-                            }});
-                            }});</script>");
-                        }
+                        hasButtonGroup = true;
 
                         //按钮组时直接返回
                         return;
                     }
                     else
                     {
-                        string substyle = isSub ? "style=\"width: 100%;\"" : "";
-                        toolBarBtnStrBuilder.Append($@"<a href=""javascript:void(0)"" onclick=""wtToolBarFunc_{Id}({{event:'{item.Area + item.ControllerName + item.ActionName + item.QueryString}'}});"" class=""layui-btn layui-btn-sm"" {substyle}>{icon}{item.Name}</a>");
+                        string substyle = "style=\"";
+                        substyle += isSub ? "width: 100%;" : "";
+                        substyle += "\"";
+                        toolBarBtnStrBuilder.Append($@"<a href=""javascript:void(0)"" onclick=""wtToolBarFunc_{Id}({{event:'{item.Area + item.ControllerName + item.ActionName + item.QueryString}'}});"" class=""layui-btn {(string.IsNullOrEmpty(item.ButtonClass) ? "" : $"{item.ButtonClass}")} layui-btn-sm"" {substyle}>{icon}{item.Name}</a>");
                     }
                 }
                 var url = item.Url;
@@ -691,21 +829,23 @@ layui.use(['table'], function(){{
                     case GridActionParameterTypesEnum.SingleId:
                         script.Append($@"
 if(data==undefined||data==null||data.ID==undefined||data.ID==null){{
-    var ids = ff.GetSelections('{Id}');
+    ids = ff.GetSelections('{Id}');
     if(ids.length == 0){{
-        layui.layer.msg('请选择一行');
+        layui.layer.msg('{Program._localizer["SelectOneRow"]}');
         return;
     }}else if(ids.length > 1){{
-        layui.layer.msg('最多只能选择一行');
+        layui.layer.msg('{Program._localizer["SelectOneRowMax"]}');
         return;
     }}else{{
         tempUrl = tempUrl + '&id=' + ids[0];
-        var objs = ff.GetSelectionData('{Id}');
+        objs = ff.GetSelectionData('{Id}');
         if(objs!=null && objs.length > 0){{
             tempUrl = ff.concatWhereStr(tempUrl,whereStr,objs[0]);
         }}
     }}
 }}else{{
+    ids = [data.ID];
+    objs = [data];
     tempUrl = tempUrl + '&id=' + data.ID;
     tempUrl = ff.concatWhereStr(tempUrl,whereStr,data);
 }}
@@ -716,7 +856,7 @@ if(data==undefined||data==null||data.ID==undefined||data.ID==null){{
 isPost = true;
 var ids = ff.GetSelections('{Id}');
 if(ids.length == 0){{
-    layui.layer.msg('请至少选择一行');
+    layui.layer.msg('{Program._localizer["SelectOneRowMin"]}');
     return;
 }}
 ");
@@ -724,18 +864,19 @@ if(ids.length == 0){{
                     case GridActionParameterTypesEnum.SingleIdWithNull:
                         script.Append($@"
 var ids = [];
+var objs = [];
 if(data != null && data.ID != null){{
     ids.push(data.ID);
     tempUrl = ff.concatWhereStr(tempUrl,whereStr,data);
 }} else {{
     ids = ff.GetSelections('{Id}');
-    var objs = ff.GetSelectionData('{Id}');
+    objs = ff.GetSelectionData('{Id}');
     if(objs!=null && objs.length > 0){{
         tempUrl = ff.concatWhereStr(tempUrl,whereStr,objs[0]);
     }}
 }}
 if(ids.length > 1){{
-    layui.layer.msg('最多只能选择一行');
+    layui.layer.msg('{Program._localizer["SelectOneRowMax"]}');
     return;
 }}else if(ids.length == 1){{
     tempUrl = tempUrl + '&id=' + ids[0];
@@ -765,7 +906,11 @@ case '{item.Area + item.ControllerName + item.ActionName + item.QueryString}':{{
                     string actionScript = "";
                     if (string.IsNullOrEmpty(item.OnClickFunc))
                     {
-                        if (item.ShowDialog == true)
+                        if(item.IsDownload == true)
+                        {
+                            actionScript = $"ff.Download(tempUrl,ids);";
+                        }
+                        else if (item.ShowDialog == true)
                         {
                             string width = "null";
                             string height = "null";
@@ -783,14 +928,14 @@ case '{item.Area + item.ControllerName + item.ActionName + item.QueryString}':{{
                             }
                             else
                             {
-                                actionScript = $"ff.OpenDialog(tempUrl,'{Guid.NewGuid().ToNoSplitString()}','{item.DialogTitle}',{width},{height},isPost===true&&ids!==null&&ids!==undefined?{{'Ids':ids}}:undefined);";
+                                actionScript = $"ff.OpenDialog(tempUrl,'{Guid.NewGuid().ToNoSplitString()}','{item.DialogTitle}',{width},{height},isPost===true&&ids!==null&&ids!==undefined?{{'Ids':ids}}:undefined,{item.Max.ToString().ToLower()});";
                             }
                         }
                         else
                         {
-                            if (item.Area == string.Empty && item.ControllerName == "_Framework" && item.ActionName == "GetExportExcel")
+                            if ( (item.Area == string.Empty && item.ControllerName == "_Framework" && item.ActionName == "GetExportExcel") || item.ActionName == "ExportExcel")
                             {
-                                actionScript = $"ff.DownloadExcelOrPdf(tempUrl,'{SearchPanelId}',{JsonConvert.SerializeObject(Filter)},ids);";
+                                actionScript = $"ff.DownloadExcelOrPdf(tempUrl,'{SearchPanelId}',{Id}defaultfilter.where,ids);";
                             }
                             else
                             {
@@ -807,8 +952,17 @@ case '{item.Area + item.ControllerName + item.ActionName + item.QueryString}':{{
                     }
                     else
                     {
-                        actionScript = $"{item.OnClickFunc}();";
+                        actionScript = $"{item.OnClickFunc}(ids,objs);";
                     }
+                    if (string.IsNullOrEmpty(item.PromptMessage) == false)
+                    {
+                        actionScript = $@"
+        layer.confirm('{item.PromptMessage}', {{title:'{Program._localizer["Info"]}'}},function(index){{
+            {actionScript}
+        layer.close(index);
+      }});";
+                    }
+
                     gridBtnEventStrBuilder.Append($@"
 var isPost = false;
 {script}

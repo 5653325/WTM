@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -37,19 +37,19 @@ namespace WalkingTec.Mvvm.Mvc.Admin.ViewModels.FrameworkMenuVMs
                 case ListVMSearchModeEnum.Custom2:
                     rv.AddRange(new GridColumn<FrameworkMenu_ListView>[] {
                         this.MakeGridHeader(x => x.PageName,200),
-                         this.MakeGridHeader(x => x.ParentID).SetHeader("操作").SetFormat((item, cell) => GenerateCheckBox(item)).SetAlign(GridColumnAlignEnum.Left),
+                         this.MakeGridHeader(x => x.ParentID).SetHeader(Program._localizer["Operation"]).SetFormat((item, cell) => GenerateCheckBox(item)).SetAlign(GridColumnAlignEnum.Left),
                    });
                     break;
                 default:
                     rv.AddRange(new GridColumn<FrameworkMenu_ListView>[] {
-                        this.MakeGridHeader(x => x.PageName, 300),
+                        this.MakeGridHeader(x => x.PageName,300),
                         this.MakeGridHeader(x => x.ModuleName, 150),
-                        this.MakeGridHeader(x => x.ShowOnMenu, 60),
-                        this.MakeGridHeader(x => x.FolderOnly, 60),
-                        this.MakeGridHeader(x => x.IsPublic, 60),
-                        this.MakeGridHeader(x => x.DisplayOrder, 60),
+                        this.MakeGridHeader(x => x.ShowOnMenu),
+                        this.MakeGridHeader(x => x.FolderOnly),
+                        this.MakeGridHeader(x => x.IsPublic),
+                        this.MakeGridHeader(x => x.DisplayOrder),
                         this.MakeGridHeader(x => x.ICon, 100).SetFormat(PhotoIdFormat),
-                        this.MakeGridHeaderAction(width: 290)
+                        this.MakeGridHeaderAction(width: 270)
                     });
                     break;
             }
@@ -65,34 +65,48 @@ namespace WalkingTec.Mvvm.Mvc.Admin.ViewModels.FrameworkMenuVMs
                 {
 
                     var others = item.Children?.ToList();
-                    rv += UIService.MakeCheckBox(item.Allowed, "主页面", "menu_" + item.ID, "1");
+                    rv += UIService.MakeCheckBox(item.Allowed, Program._localizer["MainPage"], "menu_" + item.ID, "1");
                     if (others != null)
                     {
                         foreach (var c in others)
                         {
-                            rv += UIService.MakeCheckBox(c.Allowed, c.ActionName, "menu_" + c.ID, "1");
+                            string actionname = "";
+                            if(c.ActionName != null)
+                            {
+                                if (Localizer[c.ActionName].ResourceNotFound == true)
+                                {
+                                    actionname = Core.Program._localizer[c.ActionName];
+                                }
+                                else
+                                {
+                                    actionname = Localizer[c.ActionName];
+                                }
+
+                            }
+                            rv += UIService.MakeCheckBox(c.Allowed, actionname, "menu_" + c.ID, "1");
                         }
                     }
                 }
                 else
                 {
-                    rv += UIService.MakeCheckBox(item.Allowed, "主页面", "menu_" + item.ID, "1");
+                    rv += UIService.MakeCheckBox(item.Allowed, Program._localizer["MainPage"], "menu_" + item.ID, "1");
                 }
             }
             return rv;
         }
+
 
         protected override List<GridAction> InitGridAction()
         {
             if (SearcherMode == ListVMSearchModeEnum.Search)
             {
                 return new List<GridAction>{
-                this.MakeAction("FrameworkMenu", "Create","新建", "新建菜单",  GridActionParameterTypesEnum.SingleIdWithNull,"_Admin"),
-                this.MakeStandardAction("FrameworkMenu", GridActionStandardTypesEnum.Edit, "修改菜单", "_Admin"),
-                this.MakeStandardAction("FrameworkMenu", GridActionStandardTypesEnum.Delete, "删除菜单", "_Admin"),
-                this.MakeStandardAction("FrameworkMenu", GridActionStandardTypesEnum.Details, "详细信息", "_Admin"),
-                this.MakeAction( "FrameworkMenu", "UnsetPages", "检查页面", "未配置的页面",GridActionParameterTypesEnum.NoId, "_Admin").SetIconCls("icon-check"),
-                this.MakeAction("FrameworkMenu", "RefreshMenu", "刷新菜单", "刷新菜单",  GridActionParameterTypesEnum.NoId,"_Admin").SetShowDialog(false).SetIconCls("icon-refresh"),
+                this.MakeAction("FrameworkMenu", "Create",Program._localizer["Create"], Program._localizer["Create"],  GridActionParameterTypesEnum.SingleIdWithNull,"_Admin").SetIconCls("layui-icon layui-icon-add-1"),
+                this.MakeStandardAction("FrameworkMenu", GridActionStandardTypesEnum.Edit, "", "_Admin"),
+                this.MakeStandardAction("FrameworkMenu", GridActionStandardTypesEnum.Delete, "", "_Admin"),
+                this.MakeStandardAction("FrameworkMenu", GridActionStandardTypesEnum.Details, "", "_Admin"),
+                this.MakeAction( "FrameworkMenu", "UnsetPages", Program._localizer["CheckPage"], Program._localizer["UnsetPages"],GridActionParameterTypesEnum.NoId, "_Admin").SetIconCls("layui-icon layui-icon-ok"),
+                this.MakeAction("FrameworkMenu", "RefreshMenu", Program._localizer["RefreshMenu"], Program._localizer["RefreshMenu"],  GridActionParameterTypesEnum.NoId,"_Admin").SetShowDialog(false).SetIconCls("layui-icon layui-icon-refresh"),
                 };
             }
             else
@@ -124,7 +138,33 @@ namespace WalkingTec.Mvvm.Mvc.Admin.ViewModels.FrameworkMenuVMs
         {
 
             var data = DC.Set<FrameworkMenu>().ToList();
-            var topdata = data.Where(x => x.ParentId == null).ToList().FlatTree(x => x.DisplayOrder).Where(x => x.IsInside == false || x.FolderOnly == true || x.Url.EndsWith("/Index")).ToList();
+            var topdata = data.Where(x => x.ParentId == null).ToList().FlatTree(x => x.DisplayOrder).Where(x => x.IsInside == false || x.FolderOnly == true || x.Url.EndsWith("/Index") || x.MethodName == null).ToList();
+            foreach (var item in topdata)
+            {
+                if (item.PageName?.StartsWith("MenuKey.") == true)
+                {
+                    if (Core.Program._Callerlocalizer[item.PageName].ResourceNotFound == true)
+                    {
+                        item.PageName = Core.Program._localizer[item.PageName];
+                    }
+                    else
+                    {
+                        item.PageName = Core.Program._Callerlocalizer[item.PageName];
+                    }
+                }
+                if (item.ModuleName?.StartsWith("MenuKey.") == true)
+                {
+                    if (Core.Program._Callerlocalizer[item.ModuleName].ResourceNotFound == true)
+                    {
+                        item.ModuleName = Core.Program._localizer[item.ModuleName];
+                    }
+                    else
+                    {
+                        item.ModuleName = Core.Program._Callerlocalizer[item.ModuleName];
+                    }
+                }
+
+            }
             topdata.ForEach((x) => { int l = x.GetLevel(); for (int i = 0; i < l; i++) { x.PageName = "&nbsp;&nbsp;&nbsp;&nbsp;" + x.PageName; } });
             if (SearcherMode == ListVMSearchModeEnum.Custom2)
             {
@@ -184,6 +224,7 @@ namespace WalkingTec.Mvvm.Mvc.Admin.ViewModels.FrameworkMenuVMs
 
             }
         }
+
     }
 
     /// <summary>
@@ -191,28 +232,28 @@ namespace WalkingTec.Mvvm.Mvc.Admin.ViewModels.FrameworkMenuVMs
     /// </summary>
     public class FrameworkMenu_ListView : BasePoco
     {
-        [Display(Name = "页面名称")]
+        [Display(Name = "PageName")]
         public string PageName { get; set; }
 
-        [Display(Name = "模块名称")]
+        [Display(Name = "ModuleName")]
         public string ModuleName { get; set; }
 
-        [Display(Name = "动作名称")]
+        [Display(Name = "ActionName")]
         public string ActionName { get; set; }
 
-        [Display(Name = "菜单")]
+        [Display(Name = "ShowOnMenu")]
         public bool? ShowOnMenu { get; set; }
 
-        [Display(Name = "目录")]
+        [Display(Name = "FolderOnly")]
         public bool? FolderOnly { get; set; }
 
-        [Display(Name = "公开")]
+        [Display(Name = "IsPublic")]
         public bool? IsPublic { get; set; }
 
-        [Display(Name = "顺序")]
+        [Display(Name = "DisplayOrder")]
         public int? DisplayOrder { get; set; }
 
-        [Display(Name = "图标")]
+        [Display(Name = "ICon")]
         public string ICon { get; set; }
 
         public bool Allowed { get; set; }

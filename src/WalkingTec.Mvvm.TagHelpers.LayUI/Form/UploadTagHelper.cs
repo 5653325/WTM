@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using Microsoft.AspNetCore.Razor.TagHelpers;
 using WalkingTec.Mvvm.Core;
+using WalkingTec.Mvvm.Core.Extensions;
 
 namespace WalkingTec.Mvvm.TagHelpers.LayUI
 {
@@ -18,6 +19,11 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
         /// 上传文件类别
         /// </summary>
         public UploadTypeEnum UploadType { get; set; }
+        
+        /// <summary>
+        /// 是否显示进度条，默认为false
+        /// </summary>
+        public bool? ShowProgress { get; set; }
 
         /// <summary>
         /// 当上传文件类别为ImageFile时，指定缩小的宽度，框架会使用缩小后的图片保存
@@ -46,6 +52,10 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
 
         public string CustomType { get; set; }
 
+        public string ConnectionString { get; set; }
+
+        public string ButtonText { get; set; }
+
         public override void Process(TagHelperContext context, TagHelperOutput output)
         {
             output.TagName = "button";
@@ -54,7 +64,14 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
             output.Attributes.Add("class", "layui-btn layui-btn-sm");
             output.Attributes.Add("type", "button");
             output.TagMode = TagMode.StartTagAndEndTag;
-            output.Content.SetHtmlContent("选择文件");
+            if (string.IsNullOrEmpty(ButtonText))
+            {
+                output.Content.SetHtmlContent(Program._localizer["Select"]);
+            }
+            else
+            {
+                output.Content.SetHtmlContent(ButtonText);
+            }
             string ext = "";
             if (string.IsNullOrEmpty(CustomType))
             {
@@ -105,21 +122,48 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
                     url += "&height=" + ThumbHeight;
                 }
             }
-            if (vm != null)
+            if (string.IsNullOrEmpty(ConnectionString) == true)
             {
-                url += $"&_DONOT_USE_CS={vm.CurrentCS}";
+                if (vm != null)
+                {
+                    url = url.AppendQuery($"_DONOT_USE_CS={vm.CurrentCS}");
+                }
+            }
+            else
+            {
+                url = url.AppendQuery($"_DONOT_USE_CS={ConnectionString}");
             }
 
             output.PreElement.SetHtmlContent($@"
 <label id='{Id}label'></label>
 ");
+            var requiredtext = "";
+            if (Field.Metadata.IsRequired)
+            {
+                requiredtext = $" lay-verify=\"required\" lay-reqText=\"{Program._localizer["{0}required", Field?.Metadata?.DisplayName ?? Field?.Metadata?.Name]}\"";
+            }
+
             output.PostElement.SetHtmlContent($@"
-<input type='hidden' id='{Id}' name='{Field.Name}' value='{Field.Model}' {(Field.Metadata.IsRequired ? " lay-verify=required" : string.Empty)} />
+<input type='hidden' id='{Id}' name='{Field.Name}' value='{Field.Model}' {requiredtext} />
+");    
+            if (ShowProgress != null)
+            {
+                if (ShowProgress == true)
+                {
+                    output.PostElement.AppendHtml($@"
+<div class='layui-progress' lay-showpercent='true' lay-filter='demo'>
+    <div class='layui-progress-bar layui-bg-red' lay-percent='0%'></div>
+</div>
+");
+                }
+            }
+            output.PostElement.AppendHtml($@"
 <script>
   function {Id}DoDelete(fileid){{
     $('#{Id}').parents('form').append(""<input type='hidden' id='DeletedFileIds' name='DeletedFileIds' value='""+fileid+""' />"");
     $('#{Id}label').html('');
     $('#{Id}').val('');
+    $('.layui-progress .layui-progress-bar').css('width', '0%');
   }}
   var index = 0;
   var {Id}preview;
@@ -132,6 +176,13 @@ layui.use(['upload'],function(){{
     ,size: {FileSize}
     ,accept: 'file'
     {(ext == "" ? "" : $", exts: '{ext}'")}
+    ,xhr: xhrOnProgress
+    ,progress: function (value) {{
+        $('.layui-progress .layui-progress-bar').css(
+            'width',
+            value + '%'
+        );
+    }}
     ,before: function(obj){{
         index = layui.layer.load(2);
         {Id}preview = obj;
@@ -140,7 +191,7 @@ layui.use(['upload'],function(){{
       layui.layer.close(index);
       if(res.Data.Id == ''){{
           $('#{Id}label').html('');
-          layui.layer.msg('上传失败');
+          layui.layer.msg('{Program._localizer["UploadFailed"]}');
       }}
       else{{
             $('#{Id}label').html('');
@@ -154,8 +205,9 @@ layui.use(['upload'],function(){{
             }});
           }});
       " : $@"
-          $('#{Id}label').append(""<button class='layui-btn layui-btn-sm layui-btn-danger' type='button' id='{Id}del' style='color:white'>""+res.Data.Name +""  删除</button>"");
+          $('#{Id}label').append(""<button class='layui-btn layui-btn-sm layui-btn-danger' type='button' id='{Id}del' style='color:white'>""+res.Data.Name +""  {Program._localizer["Delete"]}</button>"");
           $('#{Id}del').on('click',function(){{
+            $('.layui-progress .layui-progress-bar').css('width', '0%');
             {Id}DoDelete(res.Data.Id);
           }});
       "
@@ -167,6 +219,20 @@ layui.use(['upload'],function(){{
     }}
   }});
 }})
+    var xhrOnProgress = function (fun) {{
+        xhrOnProgress.onprogress = fun; //绑定监听
+        //使用闭包实现监听绑
+        return function () {{
+            var xhr = $.ajaxSettings.xhr();
+            //判断监听函数是否为函数
+            if (typeof xhrOnProgress.onprogress !== 'function')
+                return xhr;
+            if (xhrOnProgress.onprogress && xhr.upload) {{
+                xhr.upload.onprogress = xhrOnProgress.onprogress;
+            }}
+            return xhr;
+        }}
+    }}
 </script>
 ");
             if (Field.Model != null && Field.Model.ToString() != Guid.Empty.ToString())
@@ -196,7 +262,7 @@ $.ajax({{
         {Id}DoDelete('{Field.Model}');
       }});
     " : $@"
-        $('#{Id}label').append(""<button class='layui-btn layui-btn-sm layui-btn-danger' type='button' id='{Id}del' style='color:white'>""+data+""  删除</button>"");
+        $('#{Id}label').append(""<button class='layui-btn layui-btn-sm layui-btn-danger' type='button' id='{Id}del' style='color:white'>""+data+""  {Program._localizer["Delete"]}</button>"");
         $('#{Id}del').on('click',function(){{
           {Id}DoDelete('{Field.Model}');
         }});

@@ -74,7 +74,7 @@ namespace WalkingTec.Mvvm.TagHelpers.LayUI
                         last{Id}.find('.layui-tree-txt').css('color','');
                     }}
                     $('#tree{Id}hidden').html('');
-                    if(last{Id} === ele){{
+                    if(last{Id} != null && last{Id}.is(ele)){{
                         last{Id} = null;
                     }}
                     else{{
@@ -173,7 +173,7 @@ layui.use(['tree'],function(){{
             }
             else
             {
-                output.Content.SetContent("无法绑定Tree，items参数必须设定为类型为List<ITreeData<>>的值");
+                output.Content.SetContent("Error：items must be set and must be of type List<ITreeData<>>");
 
             }
             base.Process(context, output);
